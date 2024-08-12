@@ -11,7 +11,7 @@ categories = [
     {"tool": ["hammer", "screwdriver", "saw", "drill", "pliers", "wrench", "screw", "nail", "bolt", "nut"],
      "vehicle": ["car", "bus", "train", "plane", "bike", "boat", "truck", "motorbike", "helicopter", "submarine"]},
     {"country": ["USA", "China", "Russia", "India", "Brazil", "Japan", "Germany", "UK", "France", "Italy"],
-     "city": ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", "San Antonio", "San Diego", "Dallas", "Austin"]},
+     "city": ["London", "Paris", "Rome", "Boston", "Phoenix", "Berlin", "Beijing", "Madrid", "Dallas", "Austin"]},
     {"sport": ["football", "basketball", "baseball", "soccer", "tennis", "golf", "hockey", "volleyball", "rugby", "cricket"],
      "music": ["rock", "pop", "hip-hop", "jazz", "classical", "blues", "country", "reggae", "metal", "folk"]},
     {"food": ["pizza", "burger", "pasta", "sushi", "steak", "salad", "soup", "sandwich", "taco", "burrito"],

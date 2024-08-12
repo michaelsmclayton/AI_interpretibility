@@ -22,6 +22,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Define current task parameters
 n_examples = 100
 n_iterations = 500
+n_iterations_per_batch = 25
 n_words_per_prompt = 4
 n_words_per_category = 10
 n_tokens = 50257
@@ -30,22 +31,21 @@ n_tokens = 50257
 numbers = [f" {i}" for i in range(10)]
 number_tokens = model.to_tokens(numbers, prepend_bos=False).squeeze().tolist()
 
-
 # -------------------------------------------------------
 # Run model
 # -------------------------------------------------------
 
-# Test task generation
-taskExamples = generateTaskExamples(n_examples, 2, 10)
-taskExamples_corrupted = shuffleNumbersInString(taskExamples)
-print(taskExamples)
-print(taskExamples_corrupted)
+# # Test task generation
+# taskExamples = generateTaskExamples(5, 1, 10)
+# taskExamples_corrupted = shuffleNumbersInString(taskExamples)
+# print(taskExamples)
+# print(taskExamples_corrupted)
 
 # Initialise task assessment
 suffix = f"{n_examples}examples_{n_iterations}iterations"
-testResults_fname = f"./taskResults_{suffix}.npy"
-logitResults_fname = f"./logitResults_{suffix}.npy"
-correctAnswers_fname = f"./correctAnswers_{suffix}.npy"
+testResults_fname = f"./savedData/taskResults_{suffix}.npy"
+logitResults_fname = f"./savedData/logitResults_{suffix}.npy"
+correctAnswers_fname = f"./savedData/correctAnswers_{suffix}.npy"
 if os.path.exists(testResults_fname):
     # Load results
     taskResults = np.load(testResults_fname)
@@ -61,17 +61,22 @@ else:
     for w_per_p in np.arange(1,n_words_per_prompt+1):
         for w_per_c in np.arange(1,n_words_per_category+1):
             print(f"Words per prompt: {w_per_p}", f"Words per category: {w_per_c}")
-            # Perform task
-            n_correct = np.zeros(2)
-            for i in tqdm(range(n_iterations)):
-
-                # Get real and corrupted task examples
-                taskExamples = generateTaskExamples(n_examples, w_per_p, w_per_c)
-                taskExamples_corrupted = shuffleNumbersInString(taskExamples)
-
+            
+            # -----------------------------------------
+            # Get real and corrupted task examples
+            # -----------------------------------------
+            taskExamples = []
+            taskExamples_corrupted = []
+            print("...getting task examples...")
+            for i in range(n_iterations):
+                
+                # Get task examples
+                t = generateTaskExamples(n_examples, w_per_p, w_per_c)
+                t_corrupted = shuffleNumbersInString(t)
+                
                 # Get prompt and answer
-                prompt_real, answer = getPromptAndAnswer(taskExamples)
-                prompt_corrupted, _ = getPromptAndAnswer(taskExamples_corrupted)
+                prompt_real, answer = getPromptAndAnswer(t)
+                prompt_corrupted, _ = getPromptAndAnswer(t_corrupted)
 
                 # Define correct token predictions
                 correct_token_idx = model.to_tokens(answer, prepend_bos=False)
@@ -79,32 +84,48 @@ else:
 
                 # Save correct token index
                 correctAnswers[w_per_p-1, w_per_c-1, i] = correct_token_idx.item()
-
-                # Run model for real and corrupted prompt
-                for p, prompt in enumerate([prompt_real, prompt_corrupted]):
+                
+                # Save task prompts
+                taskExamples.append(prompt_real)
+                taskExamples_corrupted.append(prompt_corrupted)
+            
+            # -----------------------------------------
+            # Run model for real and corrupted prompt
+            # -----------------------------------------
+            
+            # Iterate over prompts
+            for p, prompt in enumerate([taskExamples, taskExamples_corrupted]):
+                print("...prompt type:", "Real" if p == 0 else "Corrupted")
+                
+                # Iterate over batches
+                for i in tqdm(range(0, n_iterations, n_iterations_per_batch)):
+                    
+                    # Get current batch
+                    batch = prompt[i:i+n_iterations_per_batch]
 
                     # Convert prompt to tokens
-                    tokens = model.to_tokens(prompt, prepend_bos=True)
-                    tokens_str = model.to_str_tokens(prompt, prepend_bos=True)
+                    tokens = model.to_tokens(batch, prepend_bos=True, padding_side="left")
                     n_input_tokens = tokens.shape[1]
 
                     # Run the model and get logits and activations
-                    logits, activations = model.run_with_cache(tokens, remove_batch_dim=True)
+                    logits, activations = model.run_with_cache(tokens, remove_batch_dim=False)
 
                     # Get model prediction
-                    last_prediction_logits = logits[0, -1, :]
-                    last_predicted_token = torch.argmax(last_prediction_logits)
+                    last_prediction_logits = logits[:, -1, :]
                     
                     # Save logits for all number tokens
-                    number_logits = last_prediction_logits[number_tokens]
-                    logitResults[w_per_p-1, w_per_c-1, i, p, :] = last_prediction_logits.tolist()
+                    number_logits = last_prediction_logits[:,number_tokens]
+                    logitResults[w_per_p-1, w_per_c-1, i:i+n_iterations_per_batch, p, :] = last_prediction_logits.tolist()
                     
-                    # Get prediction accuracy
-                    if correct_token_idx.item() == last_predicted_token.item():
-                        n_correct[p] += 1
-            
-            # Save results
-            taskResults[w_per_p-1, w_per_c-1, :] = n_correct
+                    # Remove data from CUDA
+                    if device == "cuda":
+                        del tokens, last_prediction_logits, number_logits
+                        torch.cuda.empty_cache()
+
+            # Example of monitoring GPU memory usage
+            print(f"Allocated Memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+            print(f"Cached Memory: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+
 
     # Save results
     np.save(testResults_fname, taskResults)
@@ -143,7 +164,6 @@ for w_per_p in np.arange(1,n_words_per_prompt+1):
             incorrect_logits = logs[:,incorrect_token_idx].mean(axis=1).numpy()
             token_probabilities[w_per_p-1, w_per_c-1, i, :, 0] = correct_logits
             token_probabilities[w_per_p-1, w_per_c-1, i, :, 1] = incorrect_logits
-                
 
 # Plot token probabilities
 plt.close()
@@ -155,6 +175,7 @@ for w_per_p in np.arange(1,n_words_per_prompt+1):
         cur_probabilities = token_probabilities[w_per_p-1,:,:,task_type].mean(axis=1)
         variance_values = token_probabilities[w_per_p-1,:,:,task_type].std(axis=1)
         # ax[1,n].plot(token_probabilities[n,:,:,:].mean(axis=1))
+        ax[task_type,w_per_p-1].violinplot(cur_probabilities[:,0], showmeans=False, showmedians=True)
         ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,0], yerr=variance_values[:,0], color=cmap(0))
         ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,1], yerr=variance_values[:,1], color=cmap(1))
         ax[-1,w_per_p-1].set_xticks(np.arange(n_words_per_category), np.arange(1,n_words_per_category+1))
@@ -169,6 +190,23 @@ _ = [ax[r,0].set_ylabel("Token probability", fontsize=16) for r in range(2)]
 # Save figure
 plt.tight_layout()
 plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.png")
+plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.pdf")
+
+# # Plot token probabilities (as violin plots)
+# plt.close()
+# cmap = plt.get_cmap("tab10")
+# fig,ax = plt.subplots(2,n_words_per_prompt, sharey=True, sharex=True, figsize=(14,6))
+# for w_per_p in np.arange(1,n_words_per_prompt+1):
+#     for task_type in range(2):
+#         # Plot logit probabilities
+#         cur_probabilities = token_probabilities[w_per_p-1,:,:,task_type]
+#         for w_per_c in np.arange(1,n_words_per_category+1):
+#             parts_corr = ax[task_type,w_per_p-1].violinplot(cur_probabilities[w_per_c-1,:,0], positions=[w_per_c-1], showmeans=False, showmedians=True)
+#             r = [pc.set_facecolor('black') for pc in parts_corr['bodies']]
+
+# # Save figure
+# plt.tight_layout()
+# plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.png")
 
 
 # # -------------------------------------------------------
@@ -208,7 +246,7 @@ plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.
 
 # # Save figure
 # plt.tight_layout()
-# plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.png")
+# plt.savefig(f"./savedData/figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.png")
 
 
 # # Plot results
@@ -224,7 +262,7 @@ plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.
 #     ax[r].set_xticks(np.arange(n_words_per_category), np.arange(1,n_words_per_category+1))
 
 # plt.tight_layout()
-# plt.savefig(f"./figures/taskPerformance_plot_{n_examples}examples.png")
+# plt.savefig(f"./savedData/figures/taskPerformance_plot_{n_examples}examples.png")
 
 # # Plot results
 # plt.close()
@@ -236,4 +274,7 @@ plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.
 # ax[0].set_yticks(np.arange(n_words_per_prompt), np.arange(1,n_words_per_prompt+1))
 # ax[0].set_ylabel("Words per prompt")
 # r = [ax[r].set_xlabel("Words per category") for r in range(len(ax))]
-# plt.savefig(f"./figures/taskPerformance_imshow_{n_examples}examples.png")
+# plt.savefig(f"./savedData/figures/taskPerformance_imshow_{n_examples}examples.png")
+
+# Copy from this directory to another usig RSynC
+# rsync -avzP ./savedData/ fmg104:/data/uob/savedData/
