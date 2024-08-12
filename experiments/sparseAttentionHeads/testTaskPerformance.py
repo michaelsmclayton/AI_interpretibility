@@ -168,24 +168,24 @@ for w_per_p in np.arange(1,n_words_per_prompt+1):
 # Plot token probabilities
 plt.close()
 cmap = plt.get_cmap("tab10")
-fig,ax = plt.subplots(2,n_words_per_prompt, sharey=True, sharex=True, figsize=(14,6))
+fig,ax = plt.subplots(2,n_words_per_prompt, sharey=True, sharex=True, figsize=(12,6))
 for w_per_p in np.arange(1,n_words_per_prompt+1):
     for task_type in range(2):
         # Plot logit probabilities
         cur_probabilities = token_probabilities[w_per_p-1,:,:,task_type].mean(axis=1)
         variance_values = token_probabilities[w_per_p-1,:,:,task_type].std(axis=1)
         # ax[1,n].plot(token_probabilities[n,:,:,:].mean(axis=1))
-        ax[task_type,w_per_p-1].violinplot(cur_probabilities[:,0], showmeans=False, showmedians=True)
-        ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,0], yerr=variance_values[:,0], color=cmap(0))
-        ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,1], yerr=variance_values[:,1], color=cmap(1))
+        ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,0], yerr=variance_values[:,0], color=cmap(0), capsize=3)
+        ax[task_type,w_per_p-1].errorbar(np.arange(n_words_per_category), cur_probabilities[:,1], yerr=variance_values[:,1], color=cmap(1), capsize=3)
         ax[-1,w_per_p-1].set_xticks(np.arange(n_words_per_category), np.arange(1,n_words_per_category+1))
         ax[-1,w_per_p-1].set_xlabel("Words per category", fontsize=16)
     # Plot title
-    ax[0,w_per_p-1].set_title(f"{w_per_p} words per prompt", fontsize=18)
+    suffix = "word" if w_per_p == 1 else "words"
+    ax[0,w_per_p-1].set_title(f"{w_per_p} {suffix} per prompt", fontsize=18)
 
 # Set legends and labels
 ax[0,-1].legend(["Correct token", "Incorrect token"], fontsize=14, frameon=False)
-_ = [ax[r,0].set_ylabel("Token probability", fontsize=16) for r in range(2)]
+_ = [ax[r,0].set_ylabel("Token probability\n" + ("(Valid task)","(Corrupted task)")[r], fontsize=16) for r in range(2)]
 
 # Save figure
 plt.tight_layout()
