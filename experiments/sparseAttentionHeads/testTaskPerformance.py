@@ -36,24 +36,21 @@ number_tokens = model.to_tokens(numbers, prepend_bos=False).squeeze().tolist()
 # -------------------------------------------------------
 
 # # Test task generation
-# taskExamples = generateTaskExamples(5, 1, 10)
+# taskExamples = generateTaskExamples(5, 1, 1)
 # taskExamples_corrupted = shuffleNumbersInString(taskExamples)
 # print(taskExamples)
 # print(taskExamples_corrupted)
 
 # Initialise task assessment
 suffix = f"{n_examples}examples_{n_iterations}iterations"
-testResults_fname = f"./savedData/taskResults_{suffix}.npy"
 logitResults_fname = f"./savedData/logitResults_{suffix}.npy"
 correctAnswers_fname = f"./savedData/correctAnswers_{suffix}.npy"
-if os.path.exists(testResults_fname):
+if os.path.exists(logitResults_fname):
     # Load results
-    taskResults = np.load(testResults_fname)
     logitResults = np.load(logitResults_fname)
     correctAnswers = np.load(correctAnswers_fname)
 else:
     # Initialise task results
-    taskResults = np.zeros((n_words_per_prompt, n_words_per_category, 2))
     logitResults = np.zeros((n_words_per_prompt, n_words_per_category, n_iterations, 2, n_tokens))
     correctAnswers = np.zeros((n_words_per_prompt, n_words_per_category, n_iterations))
 
@@ -126,9 +123,7 @@ else:
             print(f"Allocated Memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
             print(f"Cached Memory: {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
 
-
     # Save results
-    np.save(testResults_fname, taskResults)
     np.save(logitResults_fname, logitResults)
     np.save(correctAnswers_fname, correctAnswers)
 
@@ -181,7 +176,7 @@ for w_per_p in np.arange(1,n_words_per_prompt+1):
         ax[-1,w_per_p-1].set_xlabel("Words per category", fontsize=16)
     # Plot title
     suffix = "word" if w_per_p == 1 else "words"
-    ax[0,w_per_p-1].set_title(f"{w_per_p} {suffix} per prompt", fontsize=18)
+    ax[0,w_per_p-1].set_title(f"{w_per_p} {suffix} per line", fontsize=18)
 
 # Set legends and labels
 ax[0,-1].legend(["Correct token", "Incorrect token"], fontsize=14, frameon=False)
@@ -191,6 +186,57 @@ _ = [ax[r,0].set_ylabel("Token probability\n" + ("(Valid task)","(Corrupted task
 plt.tight_layout()
 plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.png")
 plt.savefig(f"./figures/taskPerformanceByNwordsPerCategory_{n_examples}examples.pdf")
+
+# -------------------------------------------------------
+# Look at decline in correct token probability with increasing words per category when words per prompt == 2
+# -------------------------------------------------------
+from scipy.stats import linregress, wilcoxon
+
+# # Get data
+# plt.close()
+# fig,ax = plt.subplots(1, 4, figsize=(12,4), sharey=True)
+# for i,w_per_p in enumerate([1,2,3,4]):
+#     data = token_probabilities[w_per_p-1,:,:,0,0]
+#     first, last = data[0], data[-1]
+#     r = wilcoxon(first, last)
+#     # Get effect size
+#     effect_size = (first.mean() - last.mean()) / np.sqrt((first.std()**2 + last.std()**2) / 2)
+#     ax[i].boxplot([first, last])
+#     ax[i].set_xticks([1,2], ["1", "10"])
+#     ax[i].set_xlabel("Words per category")
+#     ax[i].set_title(f"Words per line: {w_per_p}\nEffect size: {effect_size:.4f}\np-value: {r.pvalue:.4f})")
+
+# ax[0].set_ylabel("Correct token probability")
+# plt.tight_layout()
+# plt.savefig("./figures/correctTokenProbabilitiesAcrossWordsPerCategory.png")
+
+# Plot relationship between words per category and correct token probability
+plt.close()
+fig,ax = plt.subplots(1, 4, figsize=(12,4), sharey=True)
+for i,w_per_p in enumerate([1,2,3,4]):
+    # Get data
+    data = token_probabilities[w_per_p-1,:,:,0,0]
+    # Get data in form for linear regression
+    X = np.arange(n_words_per_category)
+    Y = data.mean(axis=1)
+    # Perform linear regression
+    slope, intercept, r_value, p_value, std_err = linregress(X,Y)
+    # Get slope confidence intervals
+    slope_ci = 1.96 * std_err
+    Xs = np.array([0,n_words_per_category-1])
+    Ys = slope*Xs + intercept   
+    # Plot relationship
+    cur_probabilities = data.mean(axis=1)
+    variance_values = data.std(axis=1)
+    ax[i].errorbar(np.arange(n_words_per_category), cur_probabilities, yerr=variance_values, color=cmap(0), capsize=3)
+    ax[i].plot(Xs,Ys, color="black", linewidth=4, linestyle="--")
+    ax[i].set_xlabel("Words per category", fontsize=16)
+    ax[i].set_title(f"Words per line: {w_per_p}\nSlope: {slope:.4}\np-value: {p_value:.4f}")
+    ax[i].set_xticks(np.arange(n_words_per_category), np.arange(1,n_words_per_category+1))
+
+ax[0].set_ylabel("Correct token probability", fontsize=14)
+plt.tight_layout()
+plt.savefig("./figures/correctTokenProbabilitiesAcrossWordsPerCategory.png")
 
 # # Plot token probabilities (as violin plots)
 # plt.close()
