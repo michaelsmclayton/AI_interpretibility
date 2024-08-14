@@ -131,6 +131,9 @@ if __name__=="__main__":
             # Train model
             losses = []
             for i in range(n_epochs):
+                
+                # Clip attention head mask values between 0 and 1
+                attention_head_mask.data = torch.clamp(attention_head_mask, 0, 1)
             
                 # Run model with hooks
                 valid_logits_hk, valid_logits, correct_tokens = runModelWithHooks(model, attention_head_mask, n_w_p, n_w_c, n_iterations_per_batch, n_layers, device)
